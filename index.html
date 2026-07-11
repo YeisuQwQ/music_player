@@ -38,7 +38,7 @@
         --btn-bg: rgba(255, 255, 255, 0.15);
         --slider-track: rgba(255, 255, 255, 0.2);
         --tint: #0a84ff;
-        --lyric-size: 22px;
+        --lyric-size: 24px;
         --lyric-opacity: 0.4;
         --lyric-blur: 1.5px;
         --lyric-font: inherit;
@@ -56,7 +56,7 @@
         --btn-bg: rgba(0, 0, 0, 0.08);
         --slider-track: rgba(0, 0, 0, 0.1);
         --tint: #007aff;
-        --lyric-size: 22px;
+        --lyric-size: 24px;
         --lyric-opacity: 0.4;
         --lyric-blur: 1.5px;
         --lyric-font: inherit;
@@ -1114,7 +1114,13 @@
         overscroll-behavior: contain;
       }
 
+      /* 核心修复：防闪烁的歌词行动画 (开启硬件加速，规避 WebKit 模糊重绘 Bug) */
       .lyric-line {
+        -webkit-backface-visibility: hidden;
+        backface-visibility: hidden;
+        transform: translateZ(0) scale(0.95);
+        will-change: filter, opacity, transform;
+
         font-size: var(--lyric-size);
         font-weight: 700;
         color: var(--lyric-color);
@@ -1124,20 +1130,22 @@
         margin-bottom: 24px;
         transform-origin: center center;
         transition:
-          opacity 0.15s ease-out,
-          filter 0.15s ease-out,
-          transform 0.2s cubic-bezier(0.17, 0.89, 0.32, 1.28);
+          opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1),
+          filter 0.6s cubic-bezier(0.25, 1, 0.5, 1),
+          transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
         cursor: pointer;
         line-height: 1.5;
         text-align: center;
         letter-spacing: 0.5px;
       }
+
       .lyric-line.active {
         opacity: 1;
         filter: blur(0);
-        transform: scale(1.15);
+        transform: translateZ(0) scale(1.02); /* Apple Music 级克制放大 */
         font-weight: 800;
       }
+
       .lyric-trans {
         font-size: calc(var(--lyric-size) * 0.75);
         opacity: 0.8;
@@ -1147,12 +1155,6 @@
       }
       .show-trans .lyric-trans {
         display: block;
-      }
-      [data-theme="dark"] .lyric-line.active {
-        text-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
-      }
-      [data-theme="light"] .lyric-line.active {
-        text-shadow: 0 4px 15px rgba(255, 255, 255, 0.6);
       }
       .lyric-empty {
         font-size: 18px;
@@ -1408,6 +1410,91 @@
         font-weight: 500;
         color: var(--text-sub);
         line-height: 1.4;
+      }
+
+      /* ================= 核心重构：逐字歌词特效核心 (Apple Music 高级 HDR 质感) ================= */
+      .lyric-word {
+        display: inline-block;
+        position: relative;
+        white-space: pre;
+        transform-origin: center bottom;
+        transform: translateZ(0) scale(1);
+        will-change: transform;
+        /* 极其细腻的物理弹性曲线，模拟 Apple Music 细微缩放 */
+        transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+
+      /* 当前正在唱的字触发微小弹性放大 */
+      .lyric-word.active-word {
+        transform: translateZ(0) scale(1.05) translateY(-1px);
+      }
+
+      .word-bg {
+        opacity: 1;
+        transition: opacity 0.5s ease-out;
+        will-change: opacity;
+      }
+
+      .word-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        right: 0;
+        color: var(--lyric-color);
+        white-space: pre;
+        opacity: 0;
+        transition: opacity 0.5s ease-out;
+        will-change:
+          opacity,
+          mask-image,
+          -webkit-mask-image;
+
+        /* 极致柔和的 Apple Music 级遮罩过渡 (30% 的宽羽化边缘) */
+        -webkit-mask-image: linear-gradient(
+          90deg,
+          #000 0%,
+          #000 calc(var(--fill, -20%) - 15%),
+          transparent calc(var(--fill, -20%) + 15%),
+          transparent 100%
+        );
+        mask-image: linear-gradient(
+          90deg,
+          #000 0%,
+          #000 calc(var(--fill, -20%) - 15%),
+          transparent calc(var(--fill, -20%) + 15%),
+          transparent 100%
+        );
+        -webkit-mask-size: 100% 100%;
+        mask-size: 100% 100%;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+      }
+
+      /* 激活行时：Apple Music 底层文字是非常干净的半透明灰 */
+      .lyric-line.active.has-words .word-bg {
+        opacity: 0.35;
+      }
+
+      .lyric-line.active.has-words .word-fill {
+        opacity: 1;
+      }
+
+      /* 去除廉价贴图感：使用多层级、超大模糊半径的模拟光学 Bloom */
+      [data-theme="dark"] .lyric-line.active.has-words .word-fill,
+      [data-theme="dark"] .lyric-line.active:not(.has-words) {
+        text-shadow:
+          0 0 30px rgba(255, 255, 255, 0.15),
+          0 0 12px rgba(255, 255, 255, 0.25),
+          0 2px 4px rgba(255, 255, 255, 0.15);
+      }
+
+      [data-theme="light"] .lyric-line.active.has-words .word-fill,
+      [data-theme="light"] .lyric-line.active:not(.has-words) {
+        text-shadow:
+          0 0 20px rgba(0, 0, 0, 0.08),
+          0 0 8px rgba(0, 0, 0, 0.12),
+          0 2px 4px rgba(0, 0, 0, 0.1);
       }
     </style>
   </head>
@@ -2623,7 +2710,7 @@
               </div>
             </div>
           </div>
-          <div class="path-node">
+          <div class="path-node" id="pathOutputNode">
             <div class="node-icon">
               <svg viewBox="0 0 24 24">
                 <path
@@ -2636,6 +2723,19 @@
               <div class="node-desc" id="pathOutputDesc">
                 Float32 bit 48 kHz<br />系统默认设备
               </div>
+            </div>
+          </div>
+          <div class="path-node">
+            <div class="node-icon">
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M12 3C7.03 3 3 7.03 3 12s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9zm0 16c-3.86 0-7-3.14-7-7s3.14-7 7-7 7 3.14 7 7-3.14 7-7 7zm-1-10h2v6h-2zM11 7h2v2h-2z"
+                />
+              </svg>
+            </div>
+            <div class="node-info">
+              <div class="node-title">最终设备</div>
+              <div class="node-desc" id="pathDeviceDesc">系统默认设备</div>
             </div>
           </div>
         </div>
@@ -2912,6 +3012,85 @@
         });
       }
 
+      function reparseOldLyrics(oldLyrics) {
+        const inlineRegex = /(?:\[|<)(\d{2}):(\d{2})(?:\.(\d{2,3}))?(?:\]|>)/g;
+        const newLyrics = [];
+
+        for (let i = 0; i < oldLyrics.length; i++) {
+          let line = oldLyrics[i];
+          let textStr = line.text;
+
+          if (inlineRegex.test(textStr)) {
+            inlineRegex.lastIndex = 0;
+            let words = [];
+            let lastIndex = 0;
+            let lastTime = line.time;
+
+            let tokenMatch;
+            while ((tokenMatch = inlineRegex.exec(textStr)) !== null) {
+              let wordText = textStr.substring(lastIndex, tokenMatch.index);
+              let tm = parseInt(tokenMatch[1]);
+              let ts = parseInt(tokenMatch[2]);
+              let tmsVal = 0;
+              if (tokenMatch[3]) {
+                tmsVal =
+                  tokenMatch[3].length === 2
+                    ? parseInt(tokenMatch[3]) * 10
+                    : parseInt(tokenMatch[3]);
+                tmsVal = tmsVal / 1000;
+              }
+              let wordTimestamp = tm * 60 + ts + tmsVal;
+
+              if (wordText) {
+                words.push({
+                  time: lastTime,
+                  endTime: wordTimestamp,
+                  text: wordText,
+                });
+              }
+              lastTime = wordTimestamp;
+              lastIndex = inlineRegex.lastIndex;
+            }
+
+            let remainingText = textStr.substring(lastIndex);
+            if (remainingText) {
+              words.push({
+                time: lastTime,
+                endTime: lastTime + 2,
+                text: remainingText,
+              });
+            }
+
+            let pureText = words.map((w) => w.text).join("");
+            if (pureText) {
+              newLyrics.push({
+                time: line.time,
+                text: pureText,
+                words: words,
+                tlyric: line.tlyric || "",
+              });
+            }
+          } else {
+            newLyrics.push(line);
+          }
+        }
+
+        for (let i = 0; i < newLyrics.length; i++) {
+          let nextTime =
+            i < newLyrics.length - 1
+              ? newLyrics[i + 1].time
+              : newLyrics[i].time + 5;
+          newLyrics[i].endTime = nextTime;
+          if (newLyrics[i].words) {
+            const lastWord = newLyrics[i].words[newLyrics[i].words.length - 1];
+            if (lastWord && lastWord.endTime > nextTime) {
+              lastWord.endTime = nextTime;
+            }
+          }
+        }
+        return newLyrics;
+      }
+
       function loadPlaylistFromDB() {
         return new Promise((resolve) => {
           if (!db) return resolve();
@@ -2919,12 +3098,34 @@
           const req = tx.objectStore("playlist").getAll();
           req.onsuccess = () => {
             const songs = req.result;
+            let migrationPromises = [];
             songs.forEach((song) => {
               if (song.audioBlob)
                 song.src = URL.createObjectURL(song.audioBlob);
+
+              if (song.lyrics && song.lyrics.length > 0) {
+                let needsMigration = false;
+                const inlineRegex =
+                  /(?:\[|<)(\d{2}):(\d{2})(?:\.(\d{2,3}))?(?:\]|>)/;
+                for (let i = 0; i < song.lyrics.length; i++) {
+                  if (
+                    song.lyrics[i].text &&
+                    !song.lyrics[i].words &&
+                    inlineRegex.test(song.lyrics[i].text)
+                  ) {
+                    needsMigration = true;
+                    break;
+                  }
+                }
+                if (needsMigration) {
+                  song.lyrics = reparseOldLyrics(song.lyrics);
+                  migrationPromises.push(saveSongToDB(song));
+                }
+              }
+
               playlistData.push(song);
             });
-            resolve();
+            Promise.all(migrationPromises).then(() => resolve());
           };
         });
       }
@@ -3222,13 +3423,11 @@
         const centerY = canvas.height / 2;
 
         for (let i = 0; i < barCount; i++) {
-          // 对数映射让频率分布更符合听觉逻辑
           const index = Math.floor(
             Math.pow(i / barCount, 1.2) * (dataArrayFreq.length * 0.5),
           );
           let rawValue = dataArrayFreq[index] / 255.0;
 
-          // 给低频和高频一点补偿曲线，让 AE 效果更明显
           let value = Math.pow(rawValue, 1.4) * visAmplitude;
           if (value > 1) value = 1;
 
@@ -3986,29 +4185,112 @@
       function parseLrc(lrcStr) {
         const lines = lrcStr.split("\n");
         const temp = [];
-        const regex = /\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)/;
+        const lineRegex = /\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)/;
+        const inlineRegex = /(?:\[|<)(\d{2}):(\d{2})(?:\.(\d{2,3}))?(?:\]|>)/g;
+
         lines.forEach((line) => {
-          const match = line.match(regex);
+          const match = line.match(lineRegex);
           if (match) {
             const m = parseInt(match[1]);
             const s = parseInt(match[2]);
-            const ms = match[3] ? parseFloat("0." + match[3]) : 0;
-            const time = m * 60 + s + ms;
-            const text = match[4].trim();
-            if (text) temp.push({ time, text });
+            let msVal = 0;
+            if (match[3]) {
+              msVal =
+                match[3].length === 2
+                  ? parseInt(match[3]) * 10
+                  : parseInt(match[3]);
+              msVal = msVal / 1000;
+            }
+            const lineTime = m * 60 + s + msVal;
+            let textStr = match[4].trim();
+
+            if (inlineRegex.test(textStr)) {
+              inlineRegex.lastIndex = 0;
+              let words = [];
+              let lastIndex = 0;
+              let lastTime = lineTime;
+
+              let tokenMatch;
+              while ((tokenMatch = inlineRegex.exec(textStr)) !== null) {
+                let wordText = textStr.substring(lastIndex, tokenMatch.index);
+                let tm = parseInt(tokenMatch[1]);
+                let ts = parseInt(tokenMatch[2]);
+                let tmsVal = 0;
+                if (tokenMatch[3]) {
+                  tmsVal =
+                    tokenMatch[3].length === 2
+                      ? parseInt(tokenMatch[3]) * 10
+                      : parseInt(tokenMatch[3]);
+                  tmsVal = tmsVal / 1000;
+                }
+                let wordTimestamp = tm * 60 + ts + tmsVal;
+
+                if (wordText) {
+                  words.push({
+                    time: lastTime,
+                    endTime: wordTimestamp,
+                    text: wordText,
+                  });
+                }
+                lastTime = wordTimestamp;
+                lastIndex = inlineRegex.lastIndex;
+              }
+
+              let remainingText = textStr.substring(lastIndex);
+              if (remainingText) {
+                words.push({
+                  time: lastTime,
+                  endTime: lastTime + 2,
+                  text: remainingText,
+                });
+              }
+
+              let pureText = words.map((w) => w.text).join("");
+              if (pureText) {
+                temp.push({
+                  time: lineTime,
+                  text: pureText,
+                  words: words,
+                  tlyric: "",
+                });
+              }
+            } else {
+              if (textStr)
+                temp.push({
+                  time: lineTime,
+                  text: textStr,
+                  words: null,
+                  tlyric: "",
+                });
+            }
           }
         });
 
         temp.sort((a, b) => a.time - b.time);
+
         const result = [];
         for (let i = 0; i < temp.length; i++) {
           if (
             result.length > 0 &&
-            Math.abs(result[result.length - 1].time - temp[i].time) < 0.1
+            Math.abs(result[result.length - 1].time - temp[i].time) < 0.1 &&
+            !temp[i].words &&
+            result[result.length - 1].text !== temp[i].text
           ) {
             result[result.length - 1].tlyric = temp[i].text;
           } else {
-            result.push({ time: temp[i].time, text: temp[i].text, tlyric: "" });
+            result.push(temp[i]);
+          }
+        }
+
+        for (let i = 0; i < result.length; i++) {
+          let nextTime =
+            i < result.length - 1 ? result[i + 1].time : result[i].time + 5;
+          result[i].endTime = nextTime;
+          if (result[i].words) {
+            const lastWord = result[i].words[result[i].words.length - 1];
+            if (lastWord && lastWord.endTime > nextTime) {
+              lastWord.endTime = nextTime;
+            }
           }
         }
         return result;
@@ -4025,8 +4307,20 @@
 
         let html = "";
         song.lyrics.forEach((l, i) => {
-          html += `<div class="lyric-line" id="lyric-${i}" onclick="seekLyric(${l.time})">
-                    <div class="lyric-main">${l.text}</div>
+          let mainContent = l.text;
+          let hasWordsClass = "";
+          if (l.words && l.words.length > 0) {
+            hasWordsClass = "has-words";
+            mainContent = l.words
+              .map(
+                (w, wi) =>
+                  `<span class="lyric-word" id="word-${i}-${wi}" data-fill="-20"><span class="word-bg">${w.text}</span><span class="word-fill">${w.text}</span></span>`,
+              )
+              .join("");
+          }
+
+          html += `<div class="lyric-line ${hasWordsClass}" id="lyric-${i}" onclick="seekLyric(${l.time})">
+                    <div class="lyric-main">${mainContent}</div>
                     ${l.tlyric ? `<div class="lyric-trans">${l.tlyric}</div>` : ""}
                 </div>`;
         });
@@ -4270,6 +4564,58 @@
         e.target.value = "";
       }
 
+      function updateWordFills() {
+        if (
+          currentSongIndex !== -1 &&
+          currentLyricIndex !== -1 &&
+          document.getElementById("lyricsOverlay").classList.contains("show")
+        ) {
+          const song = playlistData[currentSongIndex];
+          if (song && song.lyrics) {
+            const line = song.lyrics[currentLyricIndex];
+            if (line && line.words) {
+              const currentTime = audioPlayer.currentTime + lyricOffset;
+              line.words.forEach((w, idx) => {
+                const el = document.getElementById(
+                  `word-${currentLyricIndex}-${idx}`,
+                );
+                if (el) {
+                  let progress = -20;
+                  let isSinging = false;
+
+                  if (currentTime >= w.endTime) {
+                    progress = 120;
+                  } else if (currentTime >= w.time) {
+                    const duration = w.endTime - w.time;
+                    progress =
+                      duration > 0
+                        ? ((currentTime - w.time) / duration) * 140 - 20
+                        : 120;
+                    isSinging = true;
+                  }
+
+                  const currentFill = el.getAttribute("data-fill");
+                  const newFill = progress.toFixed(1);
+                  if (currentFill !== newFill) {
+                    el.style.setProperty("--fill", `${newFill}%`);
+                    el.setAttribute("data-fill", newFill);
+                  }
+
+                  if (isSinging) {
+                    if (!el.classList.contains("active-word"))
+                      el.classList.add("active-word");
+                  } else {
+                    if (el.classList.contains("active-word"))
+                      el.classList.remove("active-word");
+                  }
+                }
+              });
+            }
+          }
+        }
+        requestAnimationFrame(updateWordFills);
+      }
+
       window.addEventListener("DOMContentLoaded", () => {
         initDB()
           .then(() => {
@@ -4292,6 +4638,7 @@
             if (playlistData.length > 0) {
               loadSong(0, false);
             }
+            requestAnimationFrame(updateWordFills);
           })
           .catch((e) => console.error("Database init error:", e));
       });
