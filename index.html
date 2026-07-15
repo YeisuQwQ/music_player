@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
     <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
     
-    <title>byd音乐</title>
+    <title>Pro Music Player</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
 
     <style>
@@ -331,6 +331,31 @@
         [data-theme="light"] .progress-fill { background: #000 !important; }
         [data-theme="dark"] .progress-fill { background: #fff !important; }
 
+        /* 开启歌词界面时：隐藏主界面（缩放并淡出），透出底层流体 */
+        .main-container, .floating-header, .floating-dock {
+            transition: opacity 0.5s cubic-bezier(0.32, 0.72, 0, 1), transform 0.5s cubic-bezier(0.32, 0.72, 0, 1) !important;
+        }
+
+        body.lyrics-active .main-container,
+        body.lyrics-active .floating-header,
+        body.lyrics-active .floating-dock {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            transform: scale(0.95);
+        }
+
+        /* 开启流体背景时：移除歌词面板的原有背景与强模糊，让流体充当动态壁纸 */
+        body.shader-on .lyrics-overlay {
+            background: transparent !important;
+            backdrop-filter: blur(15px) saturate(150%) brightness(0.9) !important;
+            -webkit-backdrop-filter: blur(15px) saturate(150%) brightness(0.9) !important;
+        }
+
+        body.shader-on[data-theme="light"] .lyrics-overlay {
+            backdrop-filter: blur(15px) saturate(150%) brightness(1.05) !important;
+            -webkit-backdrop-filter: blur(15px) saturate(150%) brightness(1.05) !important;
+        }
+
         /* ================= 底部统一模态框 ================= */
         .bottom-sheet-modal { position: fixed; bottom: 20px; left: 50%; transform: translate(-50%, 120%); width: calc(100% - 30px); max-width: 400px; padding: 20px; border-radius: 28px; z-index: 300; display: flex; flex-direction: column; gap: 15px; opacity: 0; pointer-events: none; background: var(--glass-bg); backdrop-filter: saturate(180%) blur(40px); -webkit-backdrop-filter: saturate(180%) blur(40px); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow); transition: transform 0.4s cubic-bezier(0.17, 0.89, 0.32, 1.28), opacity 0.3s; }
         .bottom-sheet-modal.show { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
@@ -445,9 +470,10 @@
 <body>
 
     <div class="dynamic-bg" id="dynamicBg"></div>
+    <canvas id="glBackground" style="position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:-1; opacity:0; pointer-events:none; transition: opacity 0.8s ease; mix-blend-mode: screen;"></canvas>
+
     <div class="ios-toast" id="iosToast"><span id="toastMsg"></span></div>
 
-    <!-- 统一确认弹窗 -->
     <div class="dialog-backdrop" id="dialogBackdrop" onclick="closeCustomDialog()"></div>
     <div class="custom-dialog glass-effect" id="customDialog">
         <div class="dialog-title" id="dialogTitle">提示</div>
@@ -458,7 +484,6 @@
         </div>
     </div>
 
-    <!-- 隐藏文件输入框 -->
     <input type="file" id="localAudioInput" class="hidden-file-input" accept="audio/*" multiple onchange="handleLocalAudio(event)">
     <input type="file" id="folderAudioInput" class="hidden-file-input" webkitdirectory directory multiple onchange="handleLocalAudio(event)">
     <input type="file" id="lyricsOnlyInput" class="hidden-file-input" accept=".lrc" multiple onchange="handleLyricsUpload(event)">
@@ -477,7 +502,6 @@
 
     <main class="main-container">
         <div class="swipe-wrapper" id="swipeWrapper">
-            <!-- ================= 视图 1: 播放界面 ================= -->
             <section id="view-player" class="view-section active">
                 <div class="content-card glass-effect">
                     
@@ -531,7 +555,6 @@
                 </div>
             </section>
 
-            <!-- ================= 视图 2: 音乐库 ================= -->
             <section id="view-playlist" class="view-section">
                 <div class="content-card glass-effect">
                     <div class="playlist-header-top">
@@ -561,7 +584,6 @@
                 </div>
             </section>
 
-            <!-- ================= 视图 3: 系统设置 ================= -->
             <section id="view-settings" class="view-section">
                 <div class="content-card glass-effect">
                     
@@ -625,6 +647,13 @@
                         <div class="settings-title" data-i18n="setTheme">系统与主题</div>
                         <div class="settings-card">
                             <div class="settings-item">
+                                <span class="settings-label">启用流体光影背景 (Shader)</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="shaderBgToggle" onchange="toggleShaderBg(this.checked)">
+                                    <span class="slider round"></span>
+                                </label>
+                            </div>
+                            <div class="settings-item">
                                 <span class="settings-label" data-i18n="setTechcore">启用科幻横屏模式</span>
                                 <label class="switch">
                                     <input type="checkbox" id="techcoreToggle" onchange="toggleTechcoreLandscape(this.checked)">
@@ -665,7 +694,6 @@
         <div class="dock-item" onclick="switchTab('settings', this)"><svg viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.06-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.73,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.06,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.43-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.49-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"></path></svg> <span data-i18n="tabSet">设置</span></div>
     </nav>
 
-    <!-- 歌词层 -->
     <div class="lyrics-overlay" id="lyricsOverlay">
         <div class="lyrics-header-bar">
             <button class="lyrics-icon-btn" onclick="toggleLyricsView()">
@@ -730,7 +758,6 @@
         </div>
     </div>
 
-    <!-- 歌词设置模态框 -->
     <div class="modal-backdrop" id="settingsBackdrop" onclick="toggleLyricsSettingsModal()"></div>
     <div class="bottom-sheet-modal" id="lyricsSettingsModal">
         <div class="modal-header">
@@ -784,7 +811,6 @@
         </div>
     </div>
 
-    <!-- 待播放列表模态框 -->
     <div class="modal-backdrop" id="queueBackdrop" onclick="toggleLyricsQueueModal()"></div>
     <div class="bottom-sheet-modal" id="lyricsQueueModal" style="max-height: 65vh;">
         <div class="modal-header" style="margin-bottom: 5px; flex-shrink: 0;">
@@ -792,11 +818,9 @@
             <button class="icon-btn-alt" onclick="toggleLyricsQueueModal()" style="width:28px;height:28px;padding:0; border-radius:50%;"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
         </div>
         <div class="settings-card" style="margin:0; background: var(--glass-card); flex: 1; overflow-y: auto; padding: 5px;" id="lyricsQueueList">
-            <!-- 列表渲染区 -->
-        </div>
+            </div>
     </div>
 
-    <!-- 歌曲信息模态框 -->
     <div class="modal-backdrop" id="infoBackdrop" onclick="toggleSongInfoModal()"></div>
     <div class="bottom-sheet-modal" id="songInfoModal" style="max-height: 85vh;">
         <div class="modal-header">
@@ -831,7 +855,6 @@
                 </div>
             </div>
 
-            <!-- 音频格式与输出设备信息图谱 -->
             <div class="audio-path-container">
                 <div class="path-line"></div>
                 <div class="path-node">
@@ -875,7 +898,6 @@
         </div>
     </div>
 
-    <!-- ================= 科幻横屏模式 (Techcore Landscape) ================= -->
     <div id="techcoreLandscapeOverlay" class="techcore-overlay">
         <div class="tc-top-bar">
             <div class="tc-progress-fill" id="tcProgressFill"></div>
@@ -1018,6 +1040,7 @@
                         else if(s.key === 'visGap') { visSpacing = parseInt(s.value); document.getElementById('uiVisGap').value = s.value; }
                         else if(s.key === 'visRadius') { visRadius = parseInt(s.value); document.getElementById('uiVisRadius').value = s.value; }
                         else if(s.key === 'techcoreLandscape') { techcoreLandscapeEnabled = s.value; document.getElementById('techcoreToggle').checked = s.value; checkOrientation(); }
+                        else if(s.key === 'shaderBg') { toggleShaderBg(s.value, false); document.getElementById('shaderBgToggle').checked = s.value; }
                     });
                     resolve();
                 };
@@ -1220,6 +1243,134 @@
             }
         }
 
+        /* ================= WebGL 流体背景特效 ================= */
+        let glBgCanvas, glBgCtx, glBgProgram, glBgTimeLoc, glBgResLoc, glBgAudioLoc, glBgAnimationFrame;
+        let isShaderBgEnabled = false;
+
+        function initShaderBg() {
+            glBgCanvas = document.getElementById('glBackground');
+            glBgCtx = glBgCanvas.getContext('webgl2');
+            if(!glBgCtx) return;
+
+            const vsSource = `#version 300 es
+            in vec4 a_position;
+            void main() { gl_Position = a_position; }`;
+
+            const fsSource = `#version 300 es
+            precision highp float;
+            uniform vec2 iResolution;
+            uniform float iTime;
+            uniform float iAudio; // 接收音乐节奏数据
+            out vec4 fragColor;
+
+            #define S(a,b,t) smoothstep(a,b,t)
+            mat2 Rot(float a) { return mat2(cos(a), -sin(a), sin(a), cos(a)); }
+            vec2 hash( vec2 p ) {
+                p = vec2( dot(p,vec2(2127.1,81.17)), dot(p,vec2(1269.5,283.37)) );
+                return fract(sin(p)*43758.5453);
+            }
+            float noise( in vec2 p ) {
+                vec2 i = floor( p ); vec2 f = fract( p ); vec2 u = f*f*(3.0-2.0*f);
+                float n = mix( mix( dot( -1.0+2.0*hash( i + vec2(0.0,0.0) ), f - vec2(0.0,0.0) ),
+                                    dot( -1.0+2.0*hash( i + vec2(1.0,0.0) ), f - vec2(1.0,0.0) ), u.x),
+                               mix( dot( -1.0+2.0*hash( i + vec2(0.0,1.0) ), f - vec2(0.0,1.0) ),
+                                    dot( -1.0+2.0*hash( i + vec2(1.0,1.0) ), f - vec2(1.0,1.0) ), u.x), u.y);
+                return 0.5 + 0.5*n;
+            }
+            void main() {
+                vec2 uv = gl_FragCoord.xy/iResolution.xy;
+                float ratio = iResolution.x / iResolution.y;
+                vec2 tuv = uv; tuv -= .5;
+                float degree = noise(vec2(iTime*.1, tuv.x*tuv.y));
+                tuv.y *= 1./ratio;
+                tuv *= Rot(radians((degree-.5)*720.+180.));
+                tuv.y *= ratio;
+
+                float frequency = 5.;
+                // 让音乐节奏(iAudio)影响流体的振幅与流动速度
+                float amplitude = 30. - (iAudio * 18.0);
+                float speed = iTime * 2. + (iAudio * 6.0);
+                tuv.x += sin(tuv.y*frequency+speed)/amplitude;
+                tuv.y += sin(tuv.x*frequency*1.5+speed)/(amplitude*.5);
+
+                vec3 colorYellow = vec3(.957, .804, .623);
+                vec3 colorDeepBlue = vec3(.192, .384, .933);
+                vec3 layer1 = mix(colorYellow, colorDeepBlue, S(-.3, .2, (tuv*Rot(radians(-5.))).x));
+
+                vec3 colorRed = vec3(.910, .510, .8);
+                vec3 colorBlue = vec3(0.350, .71, .953);
+                vec3 layer2 = mix(colorRed, colorBlue, S(-.3, .2, (tuv*Rot(radians(-5.))).x));
+
+                vec3 finalComp = mix(layer1, layer2, S(.5, -.3, tuv.y));
+                // 降低一点透明度让界面更好看
+                fragColor = vec4(finalComp * 0.45, 1.0);
+            }`;
+
+            function createShader(gl, type, source) {
+                const s = gl.createShader(type); gl.shaderSource(s, source); gl.compileShader(s); return s;
+            }
+            const prog = glBgCtx.createProgram();
+            glBgCtx.attachShader(prog, createShader(glBgCtx, glBgCtx.VERTEX_SHADER, vsSource));
+            glBgCtx.attachShader(prog, createShader(glBgCtx, glBgCtx.FRAGMENT_SHADER, fsSource));
+            glBgCtx.linkProgram(prog);
+            glBgProgram = prog;
+
+            const posBuf = glBgCtx.createBuffer();
+            glBgCtx.bindBuffer(glBgCtx.ARRAY_BUFFER, posBuf);
+            glBgCtx.bufferData(glBgCtx.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), glBgCtx.STATIC_DRAW);
+            const posLoc = glBgCtx.getAttribLocation(prog, "a_position");
+            glBgCtx.enableVertexAttribArray(posLoc);
+            glBgCtx.vertexAttribPointer(posLoc, 2, glBgCtx.FLOAT, false, 0, 0);
+
+            glBgTimeLoc = glBgCtx.getUniformLocation(prog, "iTime");
+            glBgResLoc = glBgCtx.getUniformLocation(prog, "iResolution");
+            glBgAudioLoc = glBgCtx.getUniformLocation(prog, "iAudio");
+        }
+
+        function renderShaderBg(time) {
+            if(!isShaderBgEnabled) return;
+            glBgAnimationFrame = requestAnimationFrame(renderShaderBg);
+            if(!glBgCtx) return;
+
+            const w = glBgCanvas.clientWidth;
+            const h = glBgCanvas.clientHeight;
+            if (glBgCanvas.width !== w || glBgCanvas.height !== h) {
+                glBgCanvas.width = w; glBgCanvas.height = h;
+                glBgCtx.viewport(0, 0, glBgCanvas.width, glBgCanvas.height);
+            }
+
+            // 计算低音频率以触发互动
+            let audioVal = 0;
+            if(isPlaying && analyser && dataArrayFreq) {
+                analyser.getByteFrequencyData(dataArrayFreq);
+                let sum = 0;
+                for(let i=0; i<25; i++) sum += dataArrayFreq[i]; // 取前25个低音频段
+                audioVal = (sum / (25 * 255)); 
+            }
+
+            glBgCtx.useProgram(glBgProgram);
+            glBgCtx.uniform2f(glBgResLoc, glBgCanvas.width, glBgCanvas.height);
+            glBgCtx.uniform1f(glBgTimeLoc, time * 0.001);
+            glBgCtx.uniform1f(glBgAudioLoc, audioVal);
+
+            glBgCtx.drawArrays(glBgCtx.TRIANGLE_STRIP, 0, 4);
+        }
+
+        function toggleShaderBg(enabled, save=true) {
+            isShaderBgEnabled = enabled;
+            if(save) saveSettingToDB('shaderBg', enabled);
+            if(enabled) {
+                document.body.classList.add('shader-on');
+                document.getElementById('glBackground').style.opacity = '1';
+                if(!glBgCtx) initShaderBg();
+                renderShaderBg(performance.now());
+            } else {
+                document.body.classList.remove('shader-on');
+                document.getElementById('glBackground').style.opacity = '0';
+                if(glBgAnimationFrame) cancelAnimationFrame(glBgAnimationFrame);
+            }
+        }
+
         /* ================= 基础逻辑与UI ================= */
         function t(key, vars={}) { 
             let str = langDict[Object.keys(langDict)[curLang]][key] || key;
@@ -1300,13 +1451,13 @@
             lyricOffset += val;
             document.getElementById('lrcOffsetDisplay').innerText = (lyricOffset > 0 ? '+' : '') + lyricOffset.toFixed(1) + 's';
             saveSettingToDB('lyricOffset', lyricOffset);
-            if (isPlaying) syncLyrics(audioPlayer.currentTime, true);
+            if (isPlaying) syncLyrics(visualTime, true); 
         }
         function resetLyricOffset() {
             lyricOffset = 0;
             document.getElementById('lrcOffsetDisplay').innerText = '0.0s';
             saveSettingToDB('lyricOffset', 0);
-            if (isPlaying) syncLyrics(audioPlayer.currentTime, true);
+            if (isPlaying) syncLyrics(visualTime, true); 
         }
 
         function toggleStatusBarLrc(enabled, save=true) {
@@ -1393,7 +1544,6 @@
             const centerY = canvas.height / 2;
 
             if (isTcActive) {
-                // 科幻横屏模式 (强制混合效果: 波纹填充 + 原始时域折线)
                 if(!dataArrayTime) dataArrayTime = new Uint8Array(analyser.fftSize);
                 analyser.getByteFrequencyData(dataArrayFreq);
                 analyser.getByteTimeDomainData(dataArrayTime);
@@ -1438,7 +1588,6 @@
                 ctx.lineTo(pointsFreq[pointsFreq.length-1].x, baseY);
                 ctx.closePath();
                 
-                // 绘制条纹填充 (Pattern)
                 const patternCanvas = document.createElement('canvas');
                 patternCanvas.width = 4; patternCanvas.height = 4;
                 const pctx = patternCanvas.getContext('2d');
@@ -2152,7 +2301,6 @@
                     document.getElementById('tcProgressFill').style.width = `${percent}%`;
                 }
             }
-            syncLyrics(time);
         });
 
         audioPlayer.addEventListener('loadedmetadata', () => {
@@ -2176,8 +2324,9 @@
         /* ================= 歌词系统 ================= */
         function toggleLyricsView() {
             document.getElementById('lyricsOverlay').classList.toggle('show');
+            document.body.classList.toggle('lyrics-active');
             if(document.getElementById('lyricsOverlay').classList.contains('show')) {
-                syncLyrics(audioPlayer.currentTime, true);
+                syncLyrics(visualTime, true);
             }
         }
 
@@ -2296,7 +2445,7 @@
                 </div>`;
             });
             container.innerHTML = html;
-            setTimeout(() => { syncLyrics(audioPlayer.currentTime, true); }, 50);
+            setTimeout(() => { syncLyrics(visualTime, true); }, 50);
         }
 
         function seekLyric(time) {
@@ -2313,7 +2462,7 @@
         document.getElementById('lyricsContent').addEventListener('touchend', () => {
             lyricsScrollTimeout = setTimeout(() => { 
                 isUserScrollingLyrics = false; 
-                syncLyrics(audioPlayer.currentTime, true);
+                syncLyrics(visualTime, true);
             }, 2500);
         });
 
@@ -2495,24 +2644,72 @@
             e.target.value = ''; 
         }
 
-        function updateWordFills() {
-            if (currentSongIndex !== -1 && currentLyricIndex !== -1 && document.getElementById('lyricsOverlay').classList.contains('show')) {
+        /* ================= 视觉时间平滑渲染引擎 (Adaptive Time Smoothing) ================= */
+        let visualTime = 0;
+        let lastRenderFrameTime = performance.now();
+
+        function updateWordFills(now) {
+            if (!now) now = performance.now();
+            requestAnimationFrame(updateWordFills);
+
+            if (currentSongIndex === -1 || !audioPlayer) return;
+
+            // 1. 计算两帧之间的时间差 (dt)
+            const dt = (now - lastRenderFrameTime) / 1000;
+            lastRenderFrameTime = now;
+
+            const targetTime = audioPlayer.currentTime;
+            
+            // 2. 预测插值与弹性平滑算法
+            if (isPlaying) {
+                const playbackRate = audioPlayer.playbackRate || 1;
+                visualTime += dt * playbackRate;
+                const drift = targetTime - visualTime;
+
+                // 动态调整平滑系数：误差极小则信任预测，误差中等则平滑修正，误差大则快速追赶
+                let tau = 0.5;
+                if (Math.abs(drift) < 0.0001) tau = 1.5;
+                else if (Math.abs(drift) < 0.05) tau = 0.4;
+                else tau = 0.2;
+
+                const smoothing = 1 - Math.exp(-dt / tau);
+                const nextTime = visualTime + drift * smoothing;
+                
+                // 如果用户在拖动进度条(后退)，或者误差极大，允许倒退
+                const canRewind = drift < -0.25 || audioPlayer.seeking;
+                visualTime = canRewind ? nextTime : Math.max(visualTime, nextTime);
+            } else {
+                // 暂停时快速对齐时间
+                const easeFactor = Math.min(1, dt * 10);
+                visualTime += (targetTime - visualTime) * easeFactor;
+            }
+
+            // 防止极端跳变（如切换歌曲）
+            if (!Number.isFinite(visualTime) || Math.abs(targetTime - visualTime) > 1) {
+                visualTime = targetTime;
+            }
+
+            // 3. 驱动滚动与状态机 (使用平滑后的 visualTime)
+            syncLyrics(visualTime);
+
+            // 4. 驱动高帧率逐字动画
+            if (document.getElementById('lyricsOverlay').classList.contains('show')) {
                 const song = playlistData[currentSongIndex];
                 if (song && song.lyrics) {
                     const line = song.lyrics[currentLyricIndex];
                     if (line && line.words) {
-                        const currentTime = audioPlayer.currentTime + lyricOffset;
+                        const activeTime = visualTime + lyricOffset;
                         line.words.forEach((w, idx) => {
                             const el = document.getElementById(`word-${currentLyricIndex}-${idx}`);
                             if (el) {
                                 let progress = -20; 
                                 let isSinging = false;
                                 
-                                if (currentTime >= w.endTime) {
+                                if (activeTime >= w.endTime) {
                                     progress = 120;
-                                } else if (currentTime >= w.time) {
+                                } else if (activeTime >= w.time) {
                                     const duration = w.endTime - w.time;
-                                    progress = duration > 0 ? ((currentTime - w.time) / duration) * 140 - 20 : 120;
+                                    progress = duration > 0 ? ((activeTime - w.time) / duration) * 140 - 20 : 120;
                                     isSinging = true;
                                 }
 
@@ -2533,7 +2730,6 @@
                     }
                 }
             }
-            requestAnimationFrame(updateWordFills);
         }
 
         window.addEventListener('DOMContentLoaded', () => {
